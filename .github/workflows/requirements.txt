@@ -1,6 +1,0 @@
-flask
-flask-cors
-gunicorn
-mysql-connector-python
-azure-storage-blob
-python-dotenv
