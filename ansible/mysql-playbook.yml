@@ -1,0 +1,91 @@
+---
+- hosts: mysql
+  become: yes
+  vars:
+    mysql_root_password: "{{ lookup('env','MYSQL_ROOT_PASSWORD') | default('ChangeRootPass123!') }}"
+    app_db_name: "nodeappdb"
+    app_db_user: "nodeuser"
+    app_db_password: "{{ lookup('env','MYSQL_APP_PASSWORD') | default('ChangeAppPass123!') }}"
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+
+    - name: Install MySQL server and tools
+      apt:
+        name:
+          - mysql-server
+          - python3-pymysql
+        state: present
+
+    - name: Ensure MySQL service is started
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Ensure mysqld bind-address set to 0.0.0.0
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address'
+        line: 'bind-address = 0.0.0.0'
+        backup: yes
+      notify: restart mysql
+
+    - name: Set root password and create root with privs
+      mysql_user:
+        name: root
+        host: localhost
+        password: "{{ mysql_root_password }}"
+        priv: "*.*:ALL,GRANT"
+        check_implicit_admin: yes
+
+    - name: Remove anonymous users
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        check_implicit_admin: yes
+
+    - name: Remove test DB
+      mysql_db:
+        name: test
+        state: absent
+        check_implicit_admin: yes
+
+    - name: Create app database
+      mysql_db:
+        name: "{{ app_db_name }}"
+        state: present
+        encoding: utf8mb4
+        check_implicit_admin: yes
+
+    - name: Create app user and grant privileges
+      mysql_user:
+        name: "{{ app_db_user }}"
+        password: "{{ app_db_password }}"
+        priv: "{{ app_db_name }}.*:ALL"
+        host: "%"
+        state: present
+        check_implicit_admin: yes
+
+    - name: Copy init DB script
+      copy:
+        src: files/init_db.sql
+        dest: /tmp/init_db.sql
+        mode: '0644'
+
+    - name: Import initial SQL
+      mysql_db:
+        state: import
+        target: /tmp/init_db.sql
+        name: "{{ app_db_name }}"
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+  handlers:
+    - name: restart mysql
+      service:
+        name: mysql
+        state: restarted
